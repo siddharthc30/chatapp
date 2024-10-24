@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat Application</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.5.1/sockjs.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+  <style>
+    :root {
+        --primary-color: #2196F3;
+        --secondary-color: #1976D2;
+        --background-color: #f5f5f5;
+        --border-color: #ddd;
+    }
+
+    body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background-color: var(--background-color);
+    }
+
+    .chat-container {
+        display: flex;
+        height: 100vh;
+        max-width: 1200px;
+        margin: 0 auto;
+        background: white;
+        box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+
+    .sidebar {
+        width: 300px;
+        border-right: 1px solid var(--border-color);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .user-header {
+        padding: 20px;
+        border-bottom: 1px solid var(--border-color);
+        background: var(--primary-color);
+        color: white;
+    }
+
+    .recipient-selector {
+        padding: 15px;
+        border-bottom: 1px solid var(--border-color);
+        background: white;
+    }
+
+    .language-selector {
+        padding: 15px;
+        border-bottom: 1px solid var(--border-color);
+        background: white;
+    }
+
+    .language-selector select,
+    .recipient-selector select,
+    #username {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        margin-bottom: 10px;
+    }
+
+    .status-indicator {
+        padding: 10px 20px;
+        background: #f8f9fa;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .conversation-list {
+        flex: 1;
+        overflow-y: auto;
+    }
+
+    .conversation-item {
+        padding: 15px 20px;
+        border-bottom: 1px solid var(--border-color);
+        cursor: pointer;
+    }
+
+    .conversation-item:hover {
+        background: #f8f9fa;
+    }
+
+    .conversation-item.active {
+        background: #e3f2fd;
+    }
+
+    .main-chat {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .chat-header {
+        padding: 20px;
+        border-bottom: 1px solid var(--border-color);
+        background: var(--primary-color);
+        color: white;
+    }
+
+    .message-area {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .message {
+        max-width: 70%;
+        padding: 10px 15px;
+        border-radius: 15px;
+        margin: 5px 0;
+        position: relative;
+    }
+
+    .message.sent {
+        background: var(--primary-color);
+        color: white;
+        align-self: flex-end;
+    }
+
+    .message.received {
+        background: #e9ecef;
+        color: black;
+        align-self: flex-start;
+    }
+
+    .message .timestamp {
+        font-size: 0.7em;
+        opacity: 0.7;
+        margin-top: 5px;
+    }
+
+    .input-area {
+        padding: 20px;
+        border-top: 1px solid var(--border-color);
+        display: flex;
+        gap: 10px;
+    }
+
+    input[type="text"] {
+        flex: 1;
+        padding: 10px;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+    }
+
+    button {
+        padding: 10px 20px;
+        background: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    button:disabled {
+        background: #cccccc;
+        cursor: not-allowed;
+    }
+
+    button:hover:not(:disabled) {
+        background: var(--secondary-color);
+    }
+
+    .connect-container {
+        display: flex;
+        gap: 10px;
+        flex-direction: column;
+    }
+
+    .button-group {
+        display: flex;
+        gap: 10px;
+    }
+  </style>
+</head>
+<body>
+<div class="chat-container">
+  <div class="sidebar">
+    <div class="user-header">
+      <div class="connect-container">
+        <input type="text" id="username" placeholder="Enter username">
+        <div class="button-group">
+          <button id="connect">Connect</button>
+          <button id="disconnect" disabled>Disconnect</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="recipient-selector">
+      <select id="recipientSelect" disabled>
+        <option value="">Select recipient...</option>
+      </select>
+      <button id="startChat" disabled>Start Chat</button>
+    </div>
+
+    <div class="language-selector">
+      <select id="languageSelect" disabled>
+        <option value="en">English</option>
+        <option value="es">Spanish</option>
+        <option value="fr">French</option>
+        <option value="de">German</option>
+        <option value="it">Italian</option>
+        <option value="pt">Portuguese</option>
+        <option value="ru">Russian</option>
+        <option value="ja">Japanese</option>
+        <option value="ko">Korean</option>
+        <option value="zh">Chinese (Simplified)</option>
+        <option value="ar">Arabic</option>
+        <option value="hi">Hindi</option>
+      </select>
+    </div>
+
+    <div id="status" class="status-indicator">
+      Not connected
+    </div>
+
+    <div id="conversations" class="conversation-list">
+      <!-- Conversations will be populated here -->
+    </div>
+  </div>
+
+  <div class="main-chat">
+    <div class="chat-header">
+      <h2 id="currentReceiverDisplay">Select a conversation</h2>
+    </div>
+
+    <div id="messageArea" class="message-area">
+      <!-- Messages will be populated here -->
+    </div>
+
+    <div class="input-area">
+      <input type="text" id="messageInput" placeholder="Type a message..." disabled>
+      <button id="sendButton" disabled>Send</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let stompClient = null;
+  let currentUsername = null;
+  let currentReceiver = null;
+
+  // Connect button click handler
+  document.getElementById('connect').addEventListener('click', connect);
+  document.getElementById('disconnect').addEventListener('click', disconnect);
+  document.getElementById('startChat').addEventListener('click', startNewChat);
+  document.getElementById('sendButton').addEventListener('click', sendMessage);
+
+  document.getElementById('messageInput').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+          sendMessage();
+      }
+  });
+
+  // Language selector handler
+  document.getElementById('languageSelect').addEventListener('change', function() {
+      if (currentUsername) {
+          updateUserLanguage(currentUsername, this.value);
+      }
+  });
+
+  async function connect() {
+    currentUsername = document.getElementById('username').value.trim();
+    if (!currentUsername) {
+        alert('Please enter a username');
+        return;
+    }
+
+    // First create/update user
+    try {
+        const response = await fetch(`/api/users/${currentUsername}`, {
+            method: 'GET'
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to register user');
+        }
+    } catch (error) {
+        console.error('Error registering user:', error);
+        alert('Failed to connect. Please try again.');
+        return;
+    }
+
+    const socket = new SockJS('/ws');
+    stompClient = Stomp.over(socket);
+
+    stompClient.connect({}, onConnected, onError);
+  }
+
+  function onConnected() {
+      document.getElementById('status').textContent = 'Connected';
+      document.getElementById('connect').disabled = true;
+      document.getElementById('disconnect').disabled = false;
+      document.getElementById('recipientSelect').disabled = false;
+      document.getElementById('languageSelect').disabled = false;
+      document.getElementById('startChat').disabled = false;
+
+      // Subscribe to private messages
+      stompClient.subscribe(`/user/${currentUsername}/queue/messages`, onMessageReceived);
+
+      // Load user preferences
+      loadUserPreferences(currentUsername);
+
+      // Load conversations
+      loadConversations(currentUsername);
+
+      // Load available users for recipient selection
+      loadAvailableUsers();
+  }
+
+  function onError(error) {
+      document.getElementById('status').textContent = 'Could not connect to WebSocket server';
+      console.error('Error:', error);
+  }
+
+  function disconnect() {
+      if (stompClient) {
+          stompClient.disconnect();
+      }
+      resetUI();
+  }
+
+  function resetUI() {
+      document.getElementById('status').textContent = 'Not connected';
+      document.getElementById('connect').disabled = false;
+      document.getElementById('disconnect').disabled = true;
+      document.getElementById('recipientSelect').disabled = true;
+      document.getElementById('languageSelect').disabled = true;
+      document.getElementById('messageInput').disabled = true;
+      document.getElementById('sendButton').disabled = true;
+      document.getElementById('startChat').disabled = true;
+      currentUsername = null;
+      currentReceiver = null;
+      document.getElementById('currentReceiverDisplay').textContent = 'Select a conversation';
+      document.getElementById('messageArea').innerHTML = '';
+      document.getElementById('conversations').innerHTML = '';
+  }
+
+  async function loadAvailableUsers() {
+    try {
+        const response = await fetch('/api/users');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const users = await response.json();
+
+        const select = document.getElementById('recipientSelect');
+        select.innerHTML = '<option value="">Select recipient...</option>';
+
+        if (users && users.length > 0) {
+            users.forEach(user => {
+                if (user.username !== currentUsername) {
+                    const option = document.createElement('option');
+                    option.value = user.username;
+                    option.textContent = user.username;
+                    select.appendChild(option);
+                }
+            });
+        } else {
+            const option = document.createElement('option');
+            option.value = "";
+            option.textContent = "No other users available";
+            option.disabled = true;
+            select.appendChild(option);
+        }
+    } catch (error) {
+        console.error('Error loading users:', error);
+        const select = document.getElementById('recipientSelect');
+        select.innerHTML = '<option value="">Error loading users</option>';
+    }
+  }
+
+  function startNewChat() {
+      const recipientSelect = document.getElementById('recipientSelect');
+      const selectedRecipient = recipientSelect.value;
+
+      if (selectedRecipient) {
+          currentReceiver = selectedRecipient;
+          document.getElementById('currentReceiverDisplay').textContent = `Chat with ${currentReceiver}`;
+          document.getElementById('messageInput').disabled = false;
+          document.getElementById('sendButton').disabled = false;
+
+          // Load chat history
+          loadChatHistory(currentUsername, currentReceiver);
+      }
+  }
+
+  async function loadChatHistory(user1, user2) {
+      try {
+          const response = await fetch(`/api/chat/history?user1=${user1}&user2=${user2}`);
+          const messages = await response.json();
+
+          const messageArea = document.getElementById('messageArea');
+          messageArea.innerHTML = '';
+
+          messages.forEach(message => {
+              displayMessage(message);
+          });
+
+          messageArea.scrollTop = messageArea.scrollHeight;
+      } catch (error) {
+          console.error('Error loading chat history:', error);
+      }
+  }
+
+  function sendMessage() {
+      const messageInput = document.getElementById('messageInput');
+      const messageContent = messageInput.value.trim();
+
+      if (messageContent && stompClient) {
+          const chatMessage = {
+              sender: currentUsername,
+              receiver: currentReceiver,
+              content: messageContent,
+              type: 'CHAT'
+          };
+
+          stompClient.send("/app/chat.send", {}, JSON.stringify(chatMessage));
+          //messageInput.value = '';
+          console.log('The message sent is ', messageContent);
+      }
+  }
+
+  function onMessageReceived(payload) {
+      const message = JSON.parse(payload.body);
+      console.log('Message Recieved is ', message);
+      displayMessage(message);
+
+      const messageArea = document.getElementById('messageArea');
+      messageArea.scrollTop = messageArea.scrollHeight;
+  }
+
+  function displayMessage(message) {
+      const messageArea = document.getElementById('messageArea');
+      const messageElement = document.createElement('div');
+      messageElement.classList.add('message');
+      messageElement.classList.add(message.sender === currentUsername ? 'sent' : 'received');
+
+      const contentElement = document.createElement('div');
+      contentElement.textContent = message.content;
+      messageElement.appendChild(contentElement);
+
+      if (message.timestamp) {
+          const timestampElement = document.createElement('div');
+          timestampElement.classList.add('timestamp');
+          timestampElement.textContent = new Date(message.timestamp).toLocaleTimeString();
+          messageElement.appendChild(timestampElement);
+      }
+
+      messageArea.appendChild(messageElement);
+  }
+
+  async function updateUserLanguage(username, language) {
+      try {
+          const response = await fetch(`/api/users/${username}/language`, {
+              method: 'PUT',
+              headers: {
+                  'Content-Type': 'text/plain',
+              },
+              body: language
+          });
+          if (response.ok) {
+              console.log('Language preference updated successfully');
+          } else {
+              console.error('Failed to update language preference');
+          }
+      } catch (error) {
+          console.error('Error updating language preference:', error);
+      }
+  }
+
+  async function loadUserPreferences(username) {
+      try {
+          const response = await fetch(`/api/users/${username}`);
+          if (response.ok) {
+              const user = await response.json();
+              document.getElementById('languageSelect').value = user.preferredLanguage;
+          }
+      } catch (error) {
+          console.error('Error loading user preferences:', error);
+      }
+  }
+
+  async function loadConversations(username) {
+      try {
+          const response = await fetch(`/api/chat/conversations/${username}`);
+          const conversations = await response.json();
+
+          const conversationsList = document.getElementById('conversations');
+          conversationsList.innerHTML = '';
+
+          conversations.forEach(conversation => {
+              const div = document.createElement('div');
+              div.classList.add('conversation-item');
+              const otherParticipant = conversation.participant1 === username
+                  ? conversation.participant2
+                  : conversation.participant1;
+              div.textContent = `Chat with ${otherParticipant}`;
+
+              div.addEventListener('click', () => {
+                  currentReceiver = otherParticipant;
+                  document.getElementById('currentReceiverDisplay').textContent = `Chat with ${currentReceiver}`;
+                  document.getElementById('messageInput').disabled = false;
+                  document.getElementById('sendButton').disabled = false;
+                  loadChatHistory(username, otherParticipant);
+
+                  // Update active conversation styling
+                  document.querySelectorAll('.conversation-item').forEach(item => {
+                      item.classList.remove('active');
+                  });
+
+                  document.querySelectorAll('.conversation-item').forEach(item => {
+                            item.classList.remove('active');
+                        });
+                        div.classList.add('active');
+                    });
+
+                    conversationsList.appendChild(div);
+                });
+            } catch (error) {
+                console.error('Error loading conversations:', error);
+            }
+        }
+</script>
+</body>
+</html>
+
